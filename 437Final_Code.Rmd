@@ -1,4 +1,5 @@
 ---
+title: "STA437 Final Project - Junfei Xu"
 output:
   pdf_document: default
   html_document: default
