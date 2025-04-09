@@ -1,0 +1,145 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r, results = FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(reshape2)
+library(psych)
+library(CCA)
+```
+
+```{r}
+load("ABIDE_YALE.RData")
+```
+
+# ---------------------------
+## Explore and Summarize Demographic Data
+# ---------------------------
+
+```{r}
+summary(YALE_demo_var)
+
+# Histogram for Age
+ggplot(YALE_demo_var, aes(x = AGE_AT_SCAN)) +
+  geom_histogram(binwidth = 0.7, fill = "mediumpurple1", color = "darkslateblue") +
+  labs(title = "Histogram of Age at Scan", x = "Age", y = "Frequency")
+```
+
+```{r}
+# Check for missing values in demographic variables
+missing_demo <- sapply(YALE_demo_var, function(x) sum(is.na(x)))
+print("Missing values in demographic data:")
+print(missing_demo)
+```
+
+```{r}
+# Data Analysis of fMRI mean activity
+mean_activity <- sapply(YALE_fmri, function(mat) {
+  fmri_matrix <- as.matrix(mat)
+  mean(fmri_matrix, na.rm = TRUE)
+})
+
+summary(mean_activity)
+
+ggplot(data.frame(activity = mean_activity), aes(x = activity)) + 
+  geom_histogram(bins = 50, fill = "skyblue") +
+  geom_vline(xintercept = mean(mean_activity), color = "red") +
+  ggtitle("Distribution of Mean fMRI Activity")
+```
+
+# ---------------------------
+## Process fMRI Connectivity Data
+# ---------------------------
+
+```{r}
+get_upper_tri <- function(x) {
+  cor_mat <- cor(x)
+  cor_mat[upper.tri(cor_mat)]
+}
+
+# Create connectivity features matrix
+connectivity_data <- t(sapply(YALE_fmri, get_upper_tri))
+age <- YALE_demo_var$AGE_AT_SCAN 
+```
+
+# ---------------------------
+## Multivariate Analysis Using PCA
+# ---------------------------
+
+```{r}
+pca_results <- prcomp(connectivity_data, scale = FALSE)
+var_explained <- pca_results$sdev^2 / sum(pca_results$sdev^2)
+
+# Create a scree plot (elbow plot)
+scree_data <- data.frame(
+  PC = 1:length(var_explained),
+  Variance = var_explained
+)
+```
+
+```{r}
+# Plot scree plot 
+ggplot(scree_data, aes(x = PC, y = Variance)) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_line(linewidth = 1, color = "steelblue") +
+  
+  labs(title = "Scree Plot for 47-Dimensional Connectivity Data",
+       x = "Principal Component",
+       y = "Proportion of Variance Explained") +
+  scale_x_continuous(breaks = 1:47) +
+  theme_minimal()
+```
+
+# ---------------------------
+## Multivariate Analysis Using CCA
+# ---------------------------
+
+```{r}
+cum_var <- cumsum(pca_results$sdev^2)/sum(pca_results$sdev^2)
+n_components <- which(cum_var > 0.8)[1]
+X_cca <- pca_results$x[, 1:n_components]
+Y_cca <- matrix(age, ncol = 1)
+cca_results <- cc(X_cca, Y_cca)
+```
+
+```{r}
+# Significance testing
+n <- nrow(X_cca)
+p <- ncol(X_cca)
+q <- ncol(Y_cca)
+wilks_lambda <- (1 - cca_results$cor^2)
+
+F_stat <- ((n - 1 - (p + q)/2) * (1 - wilks_lambda))/wilks_lambda
+           
+p_value <- pf(F_stat, p, n - 1 - p, lower.tail = FALSE)
+
+cat("Canonical Correlation:", cca_results$cor, "\n",
+    "Wilks' Lambda:", wilks_lambda, "\n",
+    "F-statistic:", F_stat, "\n",
+    "p-value:", p_value)
+```
+
+# ---------------------------
+## Visualization & Interpretation
+# ---------------------------
+
+```{r}
+# Plot age vs first canonical variable
+canonical_X <- as.numeric(cca_results$scores$xscores[,1])
+
+plot_data <- data.frame(
+  Age = age,
+  Brain_Canonical = canonical_X
+)
+
+ggplot(plot_data, aes(x = Age, y = Brain_Canonical)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(y = "Canonical Component of Brain Connectivity", 
+       title = "Age vs Connectivity Pattern")
+```
+
